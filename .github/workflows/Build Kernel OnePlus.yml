@@ -1092,7 +1092,7 @@ jobs:
             set_config "CONFIG_KSU_SUSFS_ENABLE_LOG=n"
           else
             set_config "CONFIG_KSU_SUSFS=n"
-          fi
+          
 
           # /proc/config.gz 不再导出；IKCONFIG 本体留着，自己还能 extract 自检
           set_config "CONFIG_IKCONFIG_PROC=n"
