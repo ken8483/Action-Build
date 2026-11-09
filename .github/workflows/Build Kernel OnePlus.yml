@@ -79,7 +79,7 @@ on:
         type: choice
         description: "内核模块实现方式//Kernel module implementation method"
         required: true
-        default: KPM
+        default: N/A
         options:
           - KPM
           - KPN
@@ -1064,31 +1064,39 @@ jobs:
           }
           trap 'inject_fake_config' EXIT
 
-          # SukiSU Ultra配置
-          set_config "CONFIG_KSU=y"
+          # ===== SukiSU / SUSFS / KPM =====
+          set_hide_config "CONFIG_KSU=y"
+          set_config      "CONFIG_KSU_DEBUG=n"
 
-          # KPM配置
-          if [ "${{ github.event.inputs.KPM }}" = "KPM" ] || [ "${{ github.event.inputs.KPM }}" = "N/A" ]; then
-            set_config "CONFIG_KPM=y"
-          fi
-          if [ "${{ github.event.inputs.KPM }}" = "KPN" ]; then
+          if [ "${{ github.event.inputs.KPM }}" = "N/A" ]; then
             set_config "CONFIG_KPM=n"
+            set_config "CONFIG_KALLSYMS_ALL=n"
+          else
+            set_hide_config "CONFIG_KPM=y"
           fi
 
-          # SUSFS配置
           if [ "${{ github.event.inputs.SUSFS_META }}" != "-1" ]; then
-            set_config "CONFIG_KSU_SUSFS=y"
-            set_config "CONFIG_KSU_SUSFS_SUS_PATH=y"
-            set_config "CONFIG_KSU_SUSFS_SUS_MAP=y"
-            set_config "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
-            set_config "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-            set_config "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
-            set_config "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
-            set_config "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
-            set_config "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
-            set_config "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
+            for c in \
+              CONFIG_KSU_SUSFS \
+              CONFIG_KSU_SUSFS_SUS_PATH \
+              CONFIG_KSU_SUSFS_SUS_MAP \
+              CONFIG_KSU_SUSFS_SUS_MOUNT \
+              CONFIG_KSU_SUSFS_SUS_KSTAT \
+              CONFIG_KSU_SUSFS_SPOOF_UNAME \
+              CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              CONFIG_KSU_SUSFS_OPEN_REDIRECT \
+              CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+            do
+              set_hide_config "${c}=y"
+            done
+            set_config "CONFIG_KSU_SUSFS_ENABLE_LOG=n"
           else
             set_config "CONFIG_KSU_SUSFS=n"
+          fi
+
+          # /proc/config.gz 不再导出；IKCONFIG 本体留着，自己还能 extract 自检
+          set_config "CONFIG_IKCONFIG_PROC=n"
+          set_config "CONFIG_IKHEADERS=n"
           fi
 
           # TMPFS配置*
@@ -1214,6 +1222,8 @@ jobs:
           fi
           echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> "$GITHUB_ENV"
           echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
+          echo "KBUILD_BUILD_USER=build" >> "$GITHUB_ENV"
+          echo "KBUILD_BUILD_HOST=localhost" >> "$GITHUB_ENV"
           cd kernel_workspace/kernel_platform/
           for f in ./common/scripts/mkcompile_h ./"$KERNEL_REPOS"/scripts/mkcompile_h; do
             if [ -f "$f" ]; then
