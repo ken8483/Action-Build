@@ -1,0 +1,276 @@
+--- "repo/.github/workflows/Build Kernel OnePlus.yml"	2026-11-11 02:29:10.884150993 +0800
++++ "output/Build Kernel OnePlus.yml"	2026-11-11 03:00:13.729788834 +0800
+@@ -6,7 +6,7 @@
+         type: choice
+         description: "配置文件//Configuration file"
+         required: true
+-        default: oneplus_15
++        default: realme_gt_neo5se_v
+         options:
+           - oneplus_nord_n30_se_5g_v
+           - oneplus_10r_v
+@@ -98,12 +98,12 @@
+         type: string
+         description: "自定义构建时间(输入F使用UTCT或-1关闭)//Custom build time (Enter F to use UTCT, or -1 to disable)"
+         required: false
+-        default: "Wed Jul 15 11:18:49 UTC 2026"
++        default: "Thu Aug 13 10:46:39 UTC 2026"
+       KSU_META:
+         type: string
+         description: "管理器分支名(必填)/内置分支名(必填)/自定义版本标识(留空不修改)/回退分支提交哈希版本(留空不修改)//Manager Branch name (Required) / Builtin branch name (Required) / Custom version identifier (Leave blank to not modify) / Rollback branch commit hash version (Leave blank to not modify)"
+         required: false
+-        default: "main/builtin/Numbersf/"
++        default: "main/builtin/SukiSUUltra/"
+       LZ4_UPDATE:
+         type: boolean
+         description: "是否升级LZ4到上游最新？//Upgrade LZ4 to the latest upstream?"
+@@ -118,11 +118,11 @@
+         type: string
+         description: "自定义内核后缀(不输入使用RAND_STR或-1关闭)//Custom kernel suffix (Leave blank to use RAND_STR, or -1 to disable)"
+         required: false
+-        default: ""
++        default: "9-0-g931a7e2ba585"
+       RESUBLEVEL:
+         description: "自定义内核等级欺骗(SUBLEVEL)//Custom kernel SUBLEVEL spoofing"
+         required: false
+-        default: ""
++        default: "246"
+       FAST_BUILD:
+         type: boolean
+         description: "是否启用极速构建？//Enable ultra-fast build?"
+@@ -184,6 +184,9 @@
+     name: ${{ github.event.inputs.FAST_BUILD == 'true' && ' [FAST]' || '' }}${{ contains(github.event.inputs.FILE, '_aosp') && ' [AOSP]' || '' }}${{ github.event.inputs.KPM == 'KPM' && ' [KPM]' || github.event.inputs.KPM == 'KPN' && ' [KPN]' || '' }}${{ github.event.inputs.LSM_BBG == 'true' && ' [BBG]' || '' }}${{ github.event.inputs.SCHED_HMBIRD == 'true' && ' [HMBIRD]' || '' }}${{ github.event.inputs.DROID_SPACES == 'true' && ' [DS]' || '' }}${{ startsWith(github.event.inputs.ZRAM, '1/') && ' [ZRAM]' || '' }}${{ github.event.inputs.RE_KERNEL == 'true' && ' [REKER]' || '' }}${{ github.event.inputs.LZ4_UPDATE == 'true' && ' [LZ4UPD]' || '' }}For ${{ github.event.inputs.FILE }} ${{ github.event.inputs.SUFFIX }}
+     runs-on: ubuntu-latest
+     env:
++      # 真机内核版本（真我GT Neo5 SE / SM7475 / waipio, KMI android12-5.10）
++      # 用于构建后自检；与 SUBLEVEL=246 + SUFFIX=9-0-g931a7e2ba585 组合出该字符串
++      EXPECTED_KERNEL_VERSION: "5.10.246-android12-9-0-g931a7e2ba585"
+       CCACHE_COMPILERCHECK: "none"
+       CCACHE_NOHASHDIR: "true"
+       CCACHE_NOHARDLINK: "true"
+@@ -555,16 +558,30 @@
+           ORIG_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' ./common/Makefile)
+ 
+           # 强制修改 SUBLEVEL (内核等级)
++          # 注意：真机（如真我GT Neo5 SE）厂商清单同时提供 common 与 msm-kernel 两棵树，
++          # 最终产出的 Image 版本号取决于实际被编译的那棵树，只改 common 会导致
++          # uname 版本与真机不一致 → vendor_dlkm 模块 vermagic 不匹配 → 模块全部加载失败。
+           RESUBLEVEL="${{ github.event.inputs.RESUBLEVEL }}"
++          SUBLEVEL_TARGETS="./common/Makefile"
++          if [ -n "$KERNEL_REPOS" ] && [ -f "./$KERNEL_REPOS/Makefile" ]; then
++            SUBLEVEL_TARGETS="$SUBLEVEL_TARGETS ./$KERNEL_REPOS/Makefile"
++          fi
+           if [ -n "$RESUBLEVEL" ]; then
+-            echo "修改 SUBLEVEL 为 $RESUBLEVEL"
+-            sed -i "s/^SUBLEVEL[[:space:]]*=[[:space:]]*.*/SUBLEVEL = $RESUBLEVEL/" ./common/Makefile
++            echo "修改 SUBLEVEL 为 $RESUBLEVEL (目标: $SUBLEVEL_TARGETS)"
++            for mk in $SUBLEVEL_TARGETS; do
++              sed -i "s/^SUBLEVEL[[:space:]]*=[[:space:]]*.*/SUBLEVEL = $RESUBLEVEL/" "$mk"
++              echo "  -> $mk : $(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' "$mk")"
++            done
+           else
+             echo "未指定 SUBLEVEL，保持默认"
+           fi
+ 
+-          # 读取修改后的版本
+-          NEW_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' ./common/Makefile)
++          # 读取修改后的版本（以实际编译的树为准：厂商混合构建用 msm-kernel）
++          VERSION_MK="./common/Makefile"
++          if [ -n "$KERNEL_REPOS" ] && [ -f "./$KERNEL_REPOS/Makefile" ]; then
++            VERSION_MK="./$KERNEL_REPOS/Makefile"
++          fi
++          NEW_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' "$VERSION_MK")
+           # CKERNEL_VERSION(3位)：被修改之后或者未经过修改的完整内核版本号，用于欺骗系统
+           # DKERNEL_VERSION(3位)：被修改之前的完整内核版本号，真实值
+           if [ "$ORIG_VERSION" != "$NEW_VERSION" ]; then
+@@ -638,6 +655,29 @@
+               echo "Unknown format, appending echo manually"
+               echo "echo \"\$res-${SUFFIX}\"" >> "$f"
+             fi
++
++            # 兜底：写入确定性的版本脚本（只处理内核树，跳过 external/dtc）。
++            # 上面那套依赖脚本内部格式：
++            #   * FAST_BUILD=true  分支改写所有 ^res= 行 → 结果正确
++            #   * FAST_BUILD=false 分支用 cut -d- -f1-2 拼接 → 在 5.10 厂商脚本上会得到
++            #     "5.10.246-gki-9-0-g..."（CONFIG_LOCALVERSION="-gki" 没被清掉）→ 版本串错
++            # UTS_RELEASE 一旦对不上，vendor_dlkm 模块 vermagic 不匹配 → 全部加载失败。
++            case "$f" in
++              *external/dtc*) ;;
++              *)
++                {
++                  echo '#!/bin/sh'
++                  echo '# Action-Build: fixed kernel version suffix'
++                  echo 'if [ "$1" = "--save-scmversion" ]; then'
++                  echo "  echo \"-${KANDROID_VERSION}-${SUFFIX}\" > .scmversion"
++                  echo '  exit 0'
++                  echo 'fi'
++                  echo "echo \"-${KANDROID_VERSION}-${SUFFIX}\""
++                } > "$f"
++                chmod +x "$f"
++                echo "  -> 写入固定版本脚本: -${KANDROID_VERSION}-${SUFFIX}"
++                ;;
++            esac
+             chmod +x "$f"
+           done
+ 
+@@ -677,6 +717,25 @@
+               echo "Unknown format, appending echo manually"
+               echo "echo \"\$res-${RANDOM_SUFFIX}\"" >> "$f"
+             fi
++            if grep -q '^echo "\$res"$' "$f"; then
++              echo "  -> (随机后缀) 由下方固定版本脚本接管"
++            fi
++            case "$f" in
++              *external/dtc*) ;;
++              *)
++                {
++                  echo '#!/bin/sh'
++                  echo '# Action-Build: fixed kernel version suffix'
++                  echo 'if [ "$1" = "--save-scmversion" ]; then'
++                  echo "  echo \"-${KANDROID_VERSION}-${RANDOM_SUFFIX}\" > .scmversion"
++                  echo '  exit 0'
++                  echo 'fi'
++                  echo "echo \"-${KANDROID_VERSION}-${RANDOM_SUFFIX}\""
++                } > "$f"
++                chmod +x "$f"
++                echo "  -> 写入固定版本脚本: -${KANDROID_VERSION}-${RANDOM_SUFFIX}"
++                ;;
++            esac
+             chmod +x "$f"
+           done
+ 
+@@ -1254,9 +1313,26 @@
+       - name: Build Kernel FAST
+         if: ${{ github.event.inputs.FAST_BUILD == 'true' }}
+         id: fast_build
++        continue-on-error: true
+         run: |
+           cd kernel_workspace/kernel_platform
+ 
++          # 厂商混合构建机型（清单里带 msm-kernel 厂商树）不能走 FAST 路径：
++          # FAST 只编 common，缺 vendor 片段/KMI symbol list/厂商 dtb，
++          # 且官方 build.config.msm.* 会把 KERNEL_DIR 切到 msm-kernel，必然编不过。
++          # 这里直接交给官方 oplus_build_kernel.sh 路径处理。
++          VENDOR_TREE=""
++          if [ -n "$KERNEL_REPOS" ] && [ "$KERNEL_REPOS" != "common" ] && [ -d "./$KERNEL_REPOS" ]; then
++            VENDOR_TREE="$KERNEL_REPOS"
++          elif [ -d "./msm-kernel" ]; then
++            VENDOR_TREE="msm-kernel"
++          fi
++          if [ -n "$VENDOR_TREE" ]; then
++            echo "::warning title=FAST build skipped::检测到厂商内核树 ($VENDOR_TREE)，本机型走官方 oplus_build_kernel.sh 混合构建，FAST 路径已跳过"
++            echo "fallback=true" >> "$GITHUB_OUTPUT"
++            exit 0
++          fi
++
+           # 自动检测 LLVM_IAS
+           if [[ -f ./common/build.config.arm ]] && grep -q '^LLVM_IAS=1' ./common/build.config.arm; then
+             USE_LLVM_IAS=true
+@@ -1451,19 +1527,40 @@
+           fi
+ 
+           make O=out "${MAKE_ARGS[@]}" olddefconfig --no-print-directory
+-          make -j"$(nproc --all)" O=out "${MAKE_ARGS[@]}"
++          set +e
++          make -j"$(nproc --all)" O=out "${MAKE_ARGS[@]}" 2>&1 | tee "$GITHUB_WORKSPACE/kernel_workspace/fast_build.log"
++          MAKE_RC=${PIPESTATUS[0]}
++          set -e
++          if [ "$MAKE_RC" != "0" ]; then
++            echo "::group::FAST 编译失败，错误日志最后 200 行"
++            tail -n 200 "$GITHUB_WORKSPACE/kernel_workspace/fast_build.log" || true
++            echo "::endgroup::"
++            echo "fallback=true" >> "$GITHUB_OUTPUT"
++            exit "$MAKE_RC"
++          fi
+           ccache -s
+ 
+       - name: Fallback to Build Kernel
+-        if: ${{ github.event.inputs.FAST_BUILD == 'false' || steps.fast_build.outputs.fallback == 'true' }}
++        if: ${{ github.event.inputs.FAST_BUILD == 'false' || steps.fast_build.outputs.fallback == 'true' || steps.fast_build.outcome == 'failure' }}
+         run: |
+           cd kernel_workspace
++          echo "官方构建: CPUD=${{ env.CPUD }} BUILD_METHOD=${{ env.BUILD_METHOD }}"
++          set +e
+           if [ -f ./kernel_platform/build_with_bazel.py ]; then
+             ./kernel_platform/oplus/bazel/oplus_modules_variant.sh ${{ env.CPUD }} ${{ env.BUILD_METHOD }}
+-            ./kernel_platform/build_with_bazel.py -t ${{ env.CPUD }} ${{ env.BUILD_METHOD }}
++            ./kernel_platform/build_with_bazel.py -t ${{ env.CPUD }} ${{ env.BUILD_METHOD }} 2>&1 | tee "$GITHUB_WORKSPACE/kernel_workspace/official_build.log"
+           else
+             LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 \
+-            ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ env.CPUD }} ${{ env.BUILD_METHOD }}
++            ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ env.CPUD }} ${{ env.BUILD_METHOD }} 2>&1 | tee "$GITHUB_WORKSPACE/kernel_workspace/official_build.log"
++          fi
++          BUILD_RC=${PIPESTATUS[0]}
++          set -e
++          if [ "$BUILD_RC" != "0" ]; then
++            echo "::group::官方构建失败，日志最后 200 行"
++            tail -n 200 "$GITHUB_WORKSPACE/kernel_workspace/official_build.log" || true
++            tail -n 200 kernel_workspace/LOGDIR/build_*.log 2>/dev/null || true
++            echo "::endgroup::"
++            exit "$BUILD_RC"
+           fi
+ 
+       - name: Make AnyKernel3
+@@ -1472,22 +1569,54 @@
+           rm -rf ./AnyKernel3/.git
+           mkdir -p kernel_workspace/kernel_platform/out/Final-Image-Find/
+           image_path=""
+-          if [ -d "./kernel_workspace/kernel_platform/common/out/" ]; then
+-            image_path=$(find "./kernel_workspace/kernel_platform/common/out/" -name "Image" | head -n 1)
+-            if [ -n "$image_path" ]; then
+-              echo "✅ 使用 make 编译的统一路径，成功找到 Image 文件"
++          # 官方混合构建产物在 out/<branch>/<kernel_dir>/dist/ 下；
++          # GKI 机型要的是 common 那棵出来的 GKI Image（厂商整合版 Image 优先级低）
++          search_dirs=(
++            "./kernel_workspace/kernel_platform/common/out"
++            "./kernel_workspace/kernel_platform/out"
++            "./kernel_workspace/kernel_platform/$KERNEL_REPOS/out"
++            "./kernel_workspace/kernel_platform/dist"
++            "./kernel_workspace/out"
++            "./kernel_workspace/kernel_platform"
++          )
++          for d in "${search_dirs[@]}"; do
++            [ -z "$image_path" ] || break
++            [ -d "$d" ] || continue
++            image_path=$(find "$d" -type f -name "Image" 2>/dev/null | grep "/common/" | head -n 1)
++            if [ -z "$image_path" ]; then
++              image_path=$(find "$d" -type f -name "Image" 2>/dev/null | head -n 1)
++            fi
++            if [ -z "$image_path" ]; then
++              image_path=$(find "$d" -type f -name "Image.gz-dtb" 2>/dev/null | head -n 1)
+             fi
+-          fi
+-          if [ -z "$image_path" ] && [ -d "./kernel_workspace/kernel_platform/out/" ]; then
+-            image_path=$(find "./kernel_workspace/kernel_platform/out/" -name "Image" | head -n 1)
+             if [ -n "$image_path" ]; then
+-              echo "✅ 使用官方脚本编译，成功找到 Image 文件"
++              echo "✅ 找到 Image: $image_path"
+             fi
++          done
++          if [ -z "$image_path" ]; then
++            # 最后兜底：全盘找 dist/Image
++            image_path=$(find ./kernel_workspace -type f -path "*/dist/Image" 2>/dev/null | head -n 1)
+           fi
+           if [ -z "$image_path" ]; then
+             echo "❌ 未找到 Image 文件，构建失败" >&2
++            echo "--- 产物目录 ---"
++            find ./kernel_workspace -maxdepth 5 -type d \( -name "dist" -o -name "out" \) 2>/dev/null | head -n 20
++            echo "--- 已生成的 Image 类文件 ---"
++            find ./kernel_workspace -type f \( -name "Image" -o -name "Image.gz-dtb" \) 2>/dev/null | head -n 20
+             exit 1
+           fi
++          echo "=== 内核版本自检 (期望 ${EXPECTED_KERNEL_VERSION}) ==="
++          strings "$image_path" 2>/dev/null | grep -m1 -E "Linux version [0-9]" || true
++          if [ -n "${EXPECTED_KERNEL_VERSION:-}" ]; then
++            GOT_VER=$(strings "$image_path" 2>/dev/null | grep -m1 -oE "Linux version [0-9][^ ]*" | awk '{print $3}' || true)
++            if [ -n "$GOT_VER" ]; then
++              echo "构建版本: $GOT_VER"
++              echo "真机版本: ${EXPECTED_KERNEL_VERSION}"
++              if [ "$GOT_VER" != "${EXPECTED_KERNEL_VERSION}" ]; then
++                echo "::warning title=版本不一致::构建版本与真机版本不同，vendor_dlkm 模块可能因 vermagic/CRC 不匹配而加载失败"
++              fi
++            fi
++          fi
+           if [ -f "$image_path" ]; then
+             echo "✅ Image file finally located at: $image_path"
+             cp "$image_path" ./AnyKernel3/Image
